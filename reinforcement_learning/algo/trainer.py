@@ -74,14 +74,6 @@ class Trainer:
         self.critic_optimizer = Adam(self.critic.parameters(), lr=args.c_lr)
         self.mse_loss = nn.MSELoss()
 
-        self.use_cuda = th.cuda.is_available()
-        if self.use_cuda:
-            self.actor.cuda()
-            self.critic.cuda()
-            self.actor_target.cuda()
-            self.critic_target.cuda()
-            self.mse_loss.cuda()
-
         self.c_losses, self.a_losses = [], []
         self.step = 0
         self.__addiction(dim_obs, dim_act, folder)
@@ -104,27 +96,17 @@ class Trainer:
             self.writer = SummaryWriter(self.path['log_path'])
         if self.path['graph_path'] is not None:
             print('Draw the net of Actor and Critic!')
-            net_visual([(1,) + dim_obs],
-                       self.actor,
+            net_visual([(1,) + dim_obs], self.actor,
                        d_type=FloatTensor,
-                       filename='actor',
-                       directory=self.path['graph_path'],
-                       format='png',
-                       cleanup=True)
-            self.actor_looker = NetLooker(net=self.actor,
-                                          name='actor',
-                                          is_look=False,
-                                          root=self.path['graph_path'])
-            net_visual([(1,) + dim_obs, (1, dim_act)],
-                       self.critic,
+                       filename='actor', directory=self.path['graph_path'],
+                       format='png', cleanup=True)
+            self.actor_looker = NetLooker(net=self.actor, name='actor',
+                                          is_look=False, root=self.path['graph_path'])
+            net_visual([(1,) + dim_obs, (1, dim_act)], self.critic,
                        d_type=FloatTensor,
-                       filename='critic',
-                       directory=self.path['graph_path'],
-                       format='png',
-                       cleanup=True)
-            self.critic_looker = NetLooker(net=self.critic,
-                                           name='critic',
-                                           is_look=False)
+                       filename='critic', directory=self.path['graph_path'],
+                       format='png', cleanup=True)
+            self.critic_looker = NetLooker(net=self.critic, name='critic', is_look=False)
             print()
 
     def add_experience(self, obs, act, next_obs, rew, done):
@@ -140,73 +122,73 @@ class Trainer:
             self.var *= 0.99998
         return act.data.cpu().numpy()
 
+    # def update(self, interval=10):
+    #     self.step += 1
+    #     start = time.time()
+    #     update_target = (self.step % interval == 0)
+    #
+    #     queue = Queue()
+    #     work_args = (queue,
+    #                  self.actor, self.actor_target, self.critic, self.critic_target,
+    #                  self.actor_optimizer, self.critic_optimizer, self.mse_loss,
+    #                  self.tau, self.gamma,
+    #                  self.memory, self.batch_size,
+    #                  update_target,)
+    #     worker = Process(target=update, args=work_args)
+    #     worker.start()
+    #
+    #     [loss_q, lost_p] = queue.get()
+    #     self.c_losses.append(loss_q)
+    #     self.a_losses.append(lost_p)
+    #
+    #     if update_target:
+    #         # Record and visual the loss value of Actor and Critic
+    #         self.scalar(key='critic_loss', value=np.mean(self.c_losses), episode=self.step)
+    #         self.scalar(key='actor_loss', value=np.mean(self.a_losses), episode=self.step)
+    #         self.scalar(key="Param", value=self.var, episode=self.step)
+    #         self.c_losses, self.a_losses = [], []
+    #     print(self.step, time.time() - start)
+
     def update(self, interval=10):
         self.step += 1
         start = time.time()
-        update_target = (self.step % interval == 0)
 
-        queue = Queue()
-        work_args = (queue,
-                     self.actor, self.actor_target, self.critic, self.critic_target,
-                     self.actor_optimizer, self.critic_optimizer, self.mse_loss,
-                     self.tau, self.gamma,
-                     self.memory, self.batch_size,
-                     update_target,)
-        worker = Process(target=update, args=work_args)
-        worker.start()
+        transitions = self.memory.sample(self.batch_size)
+        batch = Experience(*zip(*transitions))
 
-        [loss_q, lost_p] = queue.get()
-        self.c_losses.append(loss_q)
-        self.a_losses.append(lost_p)
+        state_batch = th.from_numpy(np.array(batch.states)).type(FloatTensor)
+        action_batch = th.from_numpy(np.array(batch.actions)).type(FloatTensor)
+        next_states_batch = th.from_numpy(np.array(batch.next_states)).type(FloatTensor)
+        reward_batch = th.from_numpy(np.array(batch.rewards)).type(FloatTensor).unsqueeze(dim=-1)
+        done_batch = th.from_numpy(np.array(batch.dones)).type(FloatTensor).unsqueeze(dim=-1)
 
-        if update_target:
+        self.critic_optimizer.zero_grad()
+        current_q = self.critic(state_batch, action_batch)
+        next_actions = self.actor_target(next_states_batch)
+        target_next_q = self.critic_target(next_states_batch, next_actions)
+        target_q = target_next_q * self.gamma * (1 - done_batch[:, :]) + reward_batch[:, :]
+        loss_q = self.mse_loss(current_q, target_q.detach())
+        self.critic_optimizer.step()
+
+        self.actor_optimizer.zero_grad()
+        loss_p = -self.critic(state_batch, self.actor(state_batch)).mean()
+        loss_p.backward()
+        self.actor_optimizer.step()
+
+        self.c_losses.append(loss_q.item())
+        self.a_losses.append(loss_p.item())
+
+        step = self.step
+        if step % interval == 0:
+            soft_update(self.critic_target, self.critic, self.tau)
+            soft_update(self.actor_target, self.actor, self.tau)
+
             # Record and visual the loss value of Actor and Critic
-            self.scalar(key='critic_loss', value=np.mean(self.c_losses), episode=self.step)
-            self.scalar(key='actor_loss', value=np.mean(self.a_losses), episode=self.step)
+            self.scalar(key='critic_loss', value=np.mean(self.c_losses), episode=step)
+            self.scalar(key='actor_loss', value=np.mean(self.a_losses), episode=step)
             self.scalar(key="Param", value=self.var, episode=self.step)
             self.c_losses, self.a_losses = [], []
-        print(self.step, time.time() - start)
-
-    # def update(self, step):
-    #     start = time.time()
-    #
-    #     transitions = self.memory.sample(self.batch_size)
-    #     batch = Experience(*zip(*transitions))
-    #
-    #     state_batch = th.from_numpy(np.array(batch.states)).type(FloatTensor)
-    #     action_batch = th.from_numpy(np.array(batch.actions)).type(FloatTensor)
-    #     next_states_batch = th.from_numpy(np.array(batch.next_states)).type(FloatTensor)
-    #     reward_batch = th.from_numpy(np.array(batch.rewards)).type(FloatTensor).unsqueeze(dim=-1)
-    #     done_batch = th.from_numpy(np.array(batch.dones)).type(FloatTensor).unsqueeze(dim=-1)
-    #
-    #     self.critic_optimizer.zero_grad()
-    #     current_q = self.critic(state_batch, action_batch)
-    #     next_actions = self.actor_target(next_states_batch)
-    #     target_next_q = self.critic_target(next_states_batch, next_actions)
-    #     target_q = target_next_q * self.gamma * (1 - done_batch[:, :]) + reward_batch[:, :]
-    #     loss_q = self.mse_loss(current_q, target_q.detach())
-    #     loss_q.backward()
-    #     self.critic_optimizer.step()
-    #
-    #     self.actor_optimizer.zero_grad()
-    #     ac = action_batch.clone()
-    #     ac[:, :] = self.actor(state_batch[:, :])
-    #     loss_p = -self.critic(state_batch, ac).mean()
-    #     loss_p.backward()
-    #     self.actor_optimizer.step()
-    #
-    #     self.c_losses.append(loss_q.item())
-    #     self.a_losses.append(loss_p.item())
-    #
-    #     if step % 100 == 0:
-    #         soft_update(self.critic_target, self.critic, self.tau)
-    #         soft_update(self.actor_target, self.actor, self.tau)
-    #
-    #         # Record and visual the loss value of Actor and Critic
-    #         self.scalar(key='critic_loss', value=np.mean(self.c_losses), episode=step)
-    #         self.scalar(key='actor_loss', value=np.mean(self.a_losses), episode=step)
-    #         self.c_losses, self.a_losses = [], []
-    #     print(step, time.time() - start)
+        print(step, time.time() - start)
 
     def load_model(self, load_path=None):
         if load_path is None:

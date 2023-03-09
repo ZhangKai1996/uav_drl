@@ -10,49 +10,50 @@ color_dict = {0: (0, 0, 255),
               2: (255, 0, 0)}
 
 
-def add_ADI(image, view, width, height, limit):
+def add_ADI(image, view, width, height, limits):
     """
     飞行姿态指示仪（Attitude Director Indicator, ADI）
     """
     # horizontal
     height_h = int(height // 4)
-    img_h = np.ones((height_h, width, 3), dtype=np.uint8) * 255
+    img_h = np.ones((height_h, width, 3), dtype=np.uint8)
     center_x_h, center_y_h = width // 2, height_h // 2
-    img_h = cv2.rectangle(img_h,
-                          (0, 0),
-                          (width - 1, height_h),
-                          (0, 0, 0), 1)
+    # img_h = cv2.rectangle(img_h,
+    #                       (0, 0),
+    #                       (width - 1, height_h),
+    #                       (255, 255, 255), 1)
     img_h = cv2.line(img_h,
                      (center_x_h, 0),
                      (center_x_h, height_h),
-                     (0, 0, 0), 1)
+                     (255, 255, 255), 1)
     # vertical
     width_v = int(height // 4)
-    img_v = np.ones((height, width_v, 3), dtype=np.uint8) * 255
+    img_v = np.ones((height, width_v, 3), dtype=np.uint8)
     center_x_v, center_y_v = width_v // 2, height // 2
-    img_v = cv2.rectangle(img_v,
-                          (0, 0),
-                          (width_v, height - 1),
-                          (0, 0, 0), 1)
+    # img_v = cv2.rectangle(img_v,
+    #                       (0, 0),
+    #                       (width_v, height - 1),
+    #                       (0, 0, 0), 1)
     img_v = cv2.line(img_v,
                      (0, center_y_v),
                      (width_v, center_y_v),
-                     (0, 0, 0), 1)
+                     (255, 255, 255), 1)
     # blank area
-    img_blank = np.ones((height_h, width_v, 3), dtype=np.uint8) * 255
-    img_blank = cv2.putText(img_blank,
-                            str(1),
-                            (width_v // 2, height_h // 2),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.4,
-                            (0, 0, 0), 1, cv2.LINE_AA)
+    img_blank = np.ones((height_h, width_v, 3), dtype=np.uint8)
+    # img_blank = cv2.putText(img_blank,
+    #                         str(1),
+    #                         (width_v // 2, height_h // 2),
+    #                         cv2.FONT_HERSHEY_SIMPLEX, 0.4,
+    #                         (0, 0, 0), 1, cv2.LINE_AA)
     # ball
-    tmp_h, tmp_v = height_h, width_v
     radius_h = 5
     radius_v = 5
+    tmp_h, tmp_v = height_h - radius_h, width_v - radius_v
     [horizontal, vertical] = view
     j = 0
 
-    color = (0, 0, 0)
+    color = (255, 255, 255)
+    limit = limits['h']
     if horizontal == math.inf:
         img_h = cv2.circle(img_h,
                            (center_x_h, int(tmp_h * (j + 1 / 2))),
@@ -65,6 +66,7 @@ def add_ADI(image, view, width, height, limit):
                            (center_x_h + delta, int(tmp_h * (j + 1 / 2))),
                            radius_h, color, -1)
 
+    limit = limits['v']
     if vertical == math.inf:
         img_v = cv2.circle(img_v,
                            (int(tmp_v * (j + 1 / 2)), center_y_v),
@@ -128,7 +130,6 @@ class CVRender:
         self.channel = channel
         self.border = border
         self.width, self.height = resolution(border, scale)
-        print(self.width, self.height)
         # 白色底图
         image = np.ones((self.height, self.width, self.channel), np.uint8) * 255
         lines = [[(border[0], 0), (border[1], 0)],
@@ -158,7 +159,7 @@ class CVRender:
         return image
 
     def __add_points(self, points, image, color=(0, 0, 0), name='point', radius=5, thickness=-1, font_scale=0.4,
-                     font=cv2.FONT_HERSHEY_SIMPLEX, has_arrow=False, scale_arrow=5):
+                     font=cv2.FONT_HERSHEY_SIMPLEX, has_arrow=False, scale_arrow=10):
         """
         在image里增加点（图标为圆）
         """

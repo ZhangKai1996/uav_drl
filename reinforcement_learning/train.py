@@ -52,7 +52,7 @@ def train(args):
 
     # Start iterations
     print('Iteration start...')
-    step, episode, reward_step, reward_epi = 0, 0, [], []
+    step, episode, reward_step, reward_epi, steps = 0, 0, [], [], []
     start = time.time()
     thread = None
     while True:
@@ -66,12 +66,12 @@ def train(args):
             step += 1
             reward_step.append(rew)
             reward_per_epi += rew
-            trainer.add_experience(obs, act, next_obs, rew, done)
+            trainer.add_experience(obs, act, next_obs, rew, float(done))
             obs = next_obs
 
             end = time.time()
             print("{:>3d}, {:>5d}, {:>5d}".format(i, step, episode),
-                  ["{:>+.2f}".format(a) for a in act], "{:>+7.2f}".format(rew),
+                  ["{:>+.2f}".format(a) for a in act], "{:>+7.3f}".format(rew),
                   "{:>5.2f}".format(end - start))
             start = end
 
@@ -85,6 +85,7 @@ def train(args):
 
             if done or i >= args.max_episode_len - 1:
                 reward_epi.append(reward_per_epi)
+                steps.append(i)
                 break
 
         if episode % args.save_rate == 0:
@@ -94,7 +95,8 @@ def train(args):
             trainer.scalar("Reward_step", np.mean(reward_step), episode)
             # Mean reward for each agent (episode)
             trainer.scalar("Reward_epi", np.mean(reward_epi), episode)
-            reward_step, reward_epi = [], []
+            trainer.scalar("Average_step", np.mean(steps), episode)
+            reward_step, reward_epi, steps = [], [], []
 
         if episode >= args.num_episodes:
             break
@@ -111,7 +113,7 @@ if __name__ == '__main__':
     parser.add_argument("--max-episode-len", type=int, default=100, help="maximum episode length")
     parser.add_argument("--num-episodes", type=int, default=1000, help="number of episodes")
     parser.add_argument('--memory-length', default=int(1e6), type=int, help='number of experience replay pool')
-    parser.add_argument("--learning-start", type=int, default=100, help="start updating after this number of step")
+    parser.add_argument("--learning-start", type=int, default=50, help="start updating after this number of step")
     parser.add_argument("--good-policy", type=str, default="algo", help="policy for good agents")
     parser.add_argument("--adv-policy", type=str, default="algo", help="policy of adversaries")
     # Core training parameters

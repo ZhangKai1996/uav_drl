@@ -22,7 +22,7 @@ class AirSimDroneEnv(AirSimEnv):
         # 目的地（会随机变化）
         self.target_point = None
         # ADI的方向显示限制范围
-        self.limit = 90.0
+        self.limit = {'h': 90.0, 'v': 45.0}
         # 记录训练飞行过程（视频）
         self.cv_render = CVRender(video_path='scenario.avi', extra_shape=image_shape)
 
@@ -78,7 +78,6 @@ class AirSimDroneEnv(AirSimEnv):
         client = self.client
         image_requests = self.image_requests
         p = self.target_point
-        limit = self.limit
 
         state = client.getMultirotorState().kinematics_estimated
         pos = state.position
@@ -95,7 +94,7 @@ class AirSimDroneEnv(AirSimEnv):
         height, width = response.height, response.width
         img1d = np.fromstring(response.image_data_uint8, dtype=np.uint8)
         img_rgb = np.reshape(img1d, (height, width, 3))
-        img_rgb = add_ADI(img_rgb, view, width, height, limit)
+        img_rgb = add_ADI(img_rgb, view, width, height, limits=self.limit)
 
         return np.transpose(img_rgb, (2, 0, 1)), img_rgb
 
@@ -109,11 +108,11 @@ class AirSimDroneEnv(AirSimEnv):
         y_square = math.pow(pos.y_val - f_point[1], 2)
         z_square = math.pow(pos.z_val - f_point[2], 2)
         dist = math.sqrt(x_square + y_square + z_square)
-        rew = -dist * 0.01
+        rew = -dist * 0.001
 
         collision = client.simGetCollisionInfo().has_collided
         if collision:
-            rew -= 10
+            rew -= 100
         return rew, collision
 
     def close(self):
